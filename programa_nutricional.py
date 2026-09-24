@@ -1,5 +1,6 @@
 import streamlit as st
 import pandas as pd
+import json
 import requests
 
 # A configuração da página deve ser obrigatoriamente o primeiro comando Streamlit
