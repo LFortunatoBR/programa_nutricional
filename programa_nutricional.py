@@ -8,6 +8,12 @@ import json
 # ==========================================
 st.set_page_config(page_title="Calculadora Metabólica Avançada", layout="wide")
 
+# Inicializa o banco de dados do cardápio do usuário na memória
+if "cardapio" not in st.session_state:
+    st.session_state["cardapio"] = pd.DataFrame(columns=[
+        "Alimento", "Quantidade (g)", "Kcal", "Carboidratos (g)", "Proteínas (g)", "Gorduras (g)"
+    ])
+
 # ==========================================
 # 2. SISTEMA DE AUTENTICAÇÃO
 # ==========================================
@@ -267,6 +273,7 @@ with col2:
     if not df_master.empty:
         df_filtrado = df_master.copy()
         
+        # Filtros e Limpezas
         df_filtrado = df_filtrado[~df_filtrado['Evitar_Tipo_Sangue'].apply(lambda x: tipo_sanguineo in x if isinstance(x, list) else False)]
         
         if dieta == "Carnívora":
@@ -287,7 +294,92 @@ with col2:
                 "Gord_100g": "{:.1f}"
             }),
             use_container_width=True,
-            height=400
+            height=300
         )
+        
+        # ==========================================
+        # 6. MONTADOR DE CARDÁPIO E CONFRONTO
+        # ==========================================
+        st.markdown("---")
+        st.header("🍽️ Montador de Cardápio")
+        
+        with st.form("form_add_alimento"):
+            col_f1, col_f2, col_f3 = st.columns([3, 1, 1])
+            
+            # Limita as opções ao que passou pelo filtro
+            opcoes_alimentos = df_filtrado['Alimento'].tolist()
+            
+            with col_f1:
+                alimento_selecionado = st.selectbox("Selecione o Alimento:", opcoes_alimentos)
+            with col_f2:
+                quantidade = st.number_input("Peso (gramas):", min_value=1.0, max_value=2000.0, value=100.0, step=10.0)
+            with col_f3:
+                st.markdown("<br>", unsafe_allow_html=True)
+                adicionar = st.form_submit_button("➕ Adicionar")
+                
+            if adicionar and alimento_selecionado:
+                linha = df_filtrado[df_filtrado['Alimento'] == alimento_selecionado].iloc[0]
+                fator = quantidade / 100.0
+                
+                novo_item = pd.DataFrame([{
+                    "Alimento": alimento_selecionado,
+                    "Quantidade (g)": quantidade,
+                    "Kcal": linha["Kcal_100g"] * fator,
+                    "Carboidratos (g)": linha["Carb_100g"] * fator,
+                    "Proteínas (g)": linha["Prot_100g"] * fator,
+                    "Gorduras (g)": linha["Gord_100g"] * fator
+                }])
+                
+                st.session_state["cardapio"] = pd.concat([st.session_state["cardapio"], novo_item], ignore_index=True)
+                st.rerun() # Atualiza os visuais imediatamente
+                
+        if not st.session_state["cardapio"].empty:
+            st.subheader("📋 Resumo do seu Cardápio")
+            st.dataframe(
+                st.session_state["cardapio"].style.format({
+                    "Quantidade (g)": "{:.0f}",
+                    "Kcal": "{:.1f}",
+                    "Carboidratos (g)": "{:.1f}",
+                    "Proteínas (g)": "{:.1f}",
+                    "Gorduras (g)": "{:.1f}"
+                }),
+                use_container_width=True
+            )
+            
+            if st.button("🗑️ Limpar Cardápio"):
+                st.session_state["cardapio"] = pd.DataFrame(columns=[
+                    "Alimento", "Quantidade (g)", "Kcal", "Carboidratos (g)", "Proteínas (g)", "Gorduras (g)"
+                ])
+                st.rerun()
+                
+            # Cálculos de Confronto
+            total_kcal = st.session_state["cardapio"]["Kcal"].sum()
+            total_carb = st.session_state["cardapio"]["Carboidratos (g)"].sum()
+            total_prot = st.session_state["cardapio"]["Proteínas (g)"].sum()
+            total_gord = st.session_state["cardapio"]["Gorduras (g)"].sum()
+            
+            st.markdown("### ⚖️ Confronto com a Meta Diária")
+            
+            def saldo_texto(total, alvo, unidade):
+                diff = alvo - total
+                if diff > 0:
+                    return f"Faltam {diff:.0f} {unidade}"
+                elif diff < 0:
+                    return f"Passou {abs(diff):.0f} {unidade}"
+                return "Meta cravada!"
+                
+            col_r1, col_r2, col_r3, col_r4 = st.columns(4)
+            col_r1.metric("Total Calorias", f"{total_kcal:.0f} kcal", saldo_texto(total_kcal, calorias_alvo, "kcal"), delta_color="off")
+            col_r2.metric("Total Carboidratos", f"{total_carb:.0f} g", saldo_texto(total_carb, carb_g, "g"), delta_color="off")
+            col_r3.metric("Total Proteínas", f"{total_prot:.0f} g", saldo_texto(total_prot, prot_g, "g"), delta_color="off")
+            col_r4.metric("Total Gorduras", f"{total_gord:.0f} g", saldo_texto(total_gord, gord_g, "g"), delta_color="off")
+            
+            # Gráficos de barra nativos do Streamlit
+            st.caption("Progresso de Preenchimento da Meta Diária")
+            st.progress(min(total_kcal / calorias_alvo, 1.0) if calorias_alvo > 0 else 0, text="Energia (Kcal)")
+            st.progress(min(total_prot / prot_g, 1.0) if prot_g > 0 else 0, text="Proteínas")
+            st.progress(min(total_carb / carb_g, 1.0) if carb_g > 0 else 0, text="Carboidratos")
+            st.progress(min(total_gord / gord_g, 1.0) if gord_g > 0 else 0, text="Gorduras")
+
     else:
         st.warning("Banco de dados indisponível no momento.")
