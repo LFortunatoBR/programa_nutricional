@@ -69,7 +69,7 @@ def inferir_restricoes_sangue(nome):
 def carregar_taco():
     """Busca e padroniza a Tabela TACO Brasileira a partir do arquivo local"""
     try:
-        with open("taco.json", "r", encoding="utf-8") as f:
+        with open("TACO.json", "r", encoding="utf-8") as f:
             dados = json.load(f)
             
         alimentos_taco = []
