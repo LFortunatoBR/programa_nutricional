@@ -1,69 +1,67 @@
 import streamlit as st
 import pandas as pd
-import json
 import requests
+import json
 
-# A configuração da página deve ser obrigatoriamente o primeiro comando Streamlit
+# ==========================================
+# 1. CONFIGURAÇÃO INICIAL DA PÁGINA
+# ==========================================
 st.set_page_config(page_title="Calculadora Metabólica Avançada", layout="wide")
 
 # ==========================================
-# SISTEMA DE AUTENTICAÇÃO
+# 2. SISTEMA DE AUTENTICAÇÃO
 # ==========================================
 def verificar_senha():
     """Valida a senha usando st.secrets e mantem o estado da sessão ativo"""
-    # Inicializa o estado de autenticação se ainda não existir
     if "autenticado" not in st.session_state:
         st.session_state["autenticado"] = False
 
-    # Se não estiver autenticado, mostra a tela de login
     if not st.session_state["autenticado"]:
         st.markdown("### Acesso Restrito: Sistema Nutricional")
         senha_digitada = st.text_input("Digite a senha de acesso:", type="password")
         
         if st.button("Entrar"):
-            # Compara com a senha salva no secrets.toml
             if senha_digitada == st.secrets.get("app_password"):
                 st.session_state["autenticado"] = True
-                st.rerun() # Recarrega a página para liberar a interface principal
+                st.rerun() 
             else:
                 st.error("Senha incorreta. Tente novamente.")
         return False
     
     return True
 
-# Trava a execução do restante do código se a função retornar False
 if not verificar_senha():
     st.stop()
 
 # ==========================================
-# 1. FUNÇÕES DE DADOS E INTEGRAÇÕES DE API
+# 3. FUNÇÕES DE DADOS E INTEGRAÇÕES
 # ==========================================
-
 def inferir_restricoes_sangue(nome):
-    """
-    Heurística para aplicar as regras de D'Adamo em alimentos carregados dinamicamente
-    das APIs (TACO e USDA), já que as bases de dados nutricionais não possuem essa informação.
-    """
     nome_lower = str(nome).lower()
     evitar = set()
-    
-    # Regras do Tipo A (Evitar carne vermelha, porco, tomate, etc)
     if any(x in nome_lower for x in ["beef", "carne", "vaca", "porco", "pork", "bacon", "tomate", "tomato", "batata", "potato"]):
         evitar.add("A")
-    
-    # Regras do Tipo B (Evitar frango, porco, milho, tomate, amendoim)
     if any(x in nome_lower for x in ["frango", "chicken", "porco", "pork", "bacon", "milho", "corn", "tomate", "tomato", "amendoim", "peanut"]):
         evitar.add("B")
-        
-    # Regras do Tipo O (Evitar trigo, milho, laticínios, porco)
     if any(x in nome_lower for x in ["trigo", "wheat", "milho", "corn", "leite", "milk", "queijo", "cheese", "porco", "pork"]):
         evitar.add("O")
-        
-    # Regras do Tipo AB (Evitar frango, milho, carne bovina)
     if any(x in nome_lower for x in ["frango", "chicken", "milho", "corn", "beef", "vaca"]):
         evitar.add("AB")
-        
     return list(evitar)
+
+def converter_para_float(valor):
+    """Converte valores como 'Tr' (Traços), 'NA' ou strings vazias do JSON para 0.0"""
+    if isinstance(valor, (int, float)):
+        return float(valor)
+    if isinstance(valor, str):
+        valor_limpo = valor.strip().upper()
+        if valor_limpo in ["TR", "NA", "", "*"]:
+            return 0.0
+        try:
+            return float(valor_limpo.replace(",", "."))
+        except ValueError:
+            return 0.0
+    return 0.0
 
 @st.cache_data(ttl=86400)
 def carregar_taco():
@@ -79,22 +77,15 @@ def carregar_taco():
             if not descricao:
                 continue
             
-            # Extração segura de dicionários aninhados da TACO
-            energia = item.get("energy", {})
-            kcal = float(energia.get("kcal", 0) if energia.get("kcal") else 0)
-            
-            prot_dict = item.get("protein", {})
-            prot = float(prot_dict.get("qty", 0) if isinstance(prot_dict, dict) and prot_dict.get("qty") else 0)
-            
-            carb_dict = item.get("carbohydrate", {})
-            carb = float(carb_dict.get("qty", 0) if isinstance(carb_dict, dict) and carb_dict.get("qty") else 0)
-            
-            gord_dict = item.get("lipid", {})
-            gord = float(gord_dict.get("qty", 0) if isinstance(gord_dict, dict) and gord_dict.get("qty") else 0)
+            kcal = converter_para_float(item.get("energy_kcal", 0))
+            prot = converter_para_float(item.get("protein_g", 0))
+            carb = converter_para_float(item.get("carbohydrate_g", 0))
+            gord = converter_para_float(item.get("lipid_g", 0))
+            categoria = item.get("category", "TACO (Brasil)")
             
             alimentos_taco.append({
                 "Alimento": descricao,
-                "Categoria": "TACO (Brasil)",
+                "Categoria": categoria,
                 "Kcal_100g": kcal,
                 "Prot_100g": prot,
                 "Carb_100g": carb,
@@ -108,8 +99,6 @@ def carregar_taco():
 
 @st.cache_data(ttl=86400)
 def buscar_alimento_usda(query, max_resultados=5):
-    """Consulta a API do USDA (FoodData Central) focando em ingredientes in natura"""
-    # Recupera a chave de forma segura
     chave_api = st.secrets.get("usda_key", None)
     
     if not chave_api:
@@ -125,7 +114,6 @@ def buscar_alimento_usda(query, max_resultados=5):
     }
     
     resposta = requests.get(url, params=parametros)
-    
     if resposta.status_code != 200:
         st.error("Erro ao conectar com a base de dados do USDA.")
         return pd.DataFrame()
@@ -162,11 +150,9 @@ def buscar_alimento_usda(query, max_resultados=5):
     return pd.DataFrame(alimentos_processados)
 
 # ==========================================
-# 2. MOTOR METABÓLICO E DE MACROS
+# 4. MOTOR METABÓLICO E DE MACROS
 # ==========================================
-
 def calcular_tmb(peso, altura, idade, sexo):
-    """Mifflin-St Jeor"""
     if sexo == "Masculino":
         return (10 * peso) + (6.25 * altura) - (5 * idade) + 5
     else:
@@ -188,7 +174,7 @@ def distribuir_macros(calorias, dieta, peso, objetivo):
     elif dieta == "Restrição Severa (Low-Carb)":
         carb_pct, prot_pct, gord_pct = 0.15, 0.40, 0.45
     else: 
-        if objetivo == "Recomposição Corporal (Emagrecer e Ganhar Massa)":
+        if "Recomposição" in objetivo:
             prot_g = peso * 2.5
             prot_kcal = prot_g * 4
             calorias_restantes = calorias - prot_kcal
@@ -205,23 +191,20 @@ def distribuir_macros(calorias, dieta, peso, objetivo):
     return round(carb_g), round(prot_g), round(gord_g)
 
 # ==========================================
-# 3. INTERFACE DO USUÁRIO (STREAMLIT)
+# 5. INTERFACE DO USUÁRIO (STREAMLIT)
 # ==========================================
-
 st.title("Sistema de Nutrição de Alta Precisão (USDA + TACO)")
 
-# Inicializa o dataframe master (TACO por padrão)
 df_master = carregar_taco()
 
-# Cria colunas de layout
 col1, col2 = st.columns([1, 2])
 
 with col1:
     st.header("Parâmetros Individuais")
-    idade = st.number_input("Idade", min_value=15, max_value=100, value=30)
+    idade = st.number_input("Idade", min_value=15, max_value=100, value=43)
     sexo = st.selectbox("Sexo", ["Masculino", "Feminino"])
-    peso = st.number_input("Peso (kg)", min_value=40.0, max_value=200.0, value=75.0)
-    altura = st.number_input("Altura (cm)", min_value=140, max_value=220, value=170)
+    peso = st.number_input("Peso (kg)", min_value=40.0, max_value=200.0, value=89.0)
+    altura = st.number_input("Altura (cm)", min_value=140, max_value=220, value=183)
     
     atividade_opcoes = {
         "Sedentário (Trabalho de escritório)": 1.2,
@@ -233,20 +216,20 @@ with col1:
     atividade_nome = st.selectbox("Nível de Atividade Física", list(atividade_opcoes.keys()), index=2)
     fator_atividade = atividade_opcoes[atividade_nome]
     
-    tipo_sanguineo = st.selectbox("Tipo Sanguíneo", ["O", "A", "B", "AB"])
+    tipo_sanguineo = st.selectbox("Tipo Sanguíneo", ["A", "B", "AB", "O"])
     
     st.header("Metas e Protocolo")
     objetivo = st.selectbox("Objetivo Clínico/Físico", [
+        "Recomposição Corporal (Emagrecer e Ganhar Massa)",
         "Emagrecimento", 
-        "Ganho de Massa Muscular", 
-        "Recomposição Corporal (Emagrecer e Ganhar Massa)"
+        "Ganho de Massa Muscular" 
     ])
     
     dieta = st.selectbox("Estratégia Alimentar", [
-        "Moderada",
-        "Restrição Severa (Low-Carb)",
         "Cetogênica",
-        "Carnívora"
+        "Carnívora",
+        "Restrição Severa (Low-Carb)",
+        "Moderada"
     ])
     
     st.markdown("---")
@@ -258,7 +241,6 @@ with col1:
             df_usda = buscar_alimento_usda(termo_busca)
             if not df_usda.empty:
                 st.success(f"Encontrados {len(df_usda)} resultados!")
-                # Mescla a base da TACO com o resultado da busca do USDA na memória
                 df_master = pd.concat([df_master, df_usda], ignore_index=True)
             else:
                 st.info("Nenhum dado retornado da USDA.")
@@ -282,28 +264,21 @@ with col2:
     st.markdown("---")
     st.header(f"Banco de Alimentos Compatíveis (Base: TACO + USDA)")
     
-    # Processamento de Filtros Baseado nas Escolhas do Usuário
     if not df_master.empty:
         df_filtrado = df_master.copy()
         
-        # 1. Filtro Tipo Sanguíneo
         df_filtrado = df_filtrado[~df_filtrado['Evitar_Tipo_Sangue'].apply(lambda x: tipo_sanguineo in x if isinstance(x, list) else False)]
         
-        # 2. Filtro Estrutura da Dieta
         if dieta == "Carnívora":
-            # Heurística rigorosa: apenas alimentos sem carboidratos ou com zero/traços
             df_filtrado = df_filtrado[df_filtrado['Carb_100g'] <= 2.0]
         elif dieta == "Cetogênica":
-            # Limita opções ricas em carboidratos (ex: acima de 8g a cada 100g)
             df_filtrado = df_filtrado[df_filtrado['Carb_100g'] <= 8.0]
             
-        # Remover itens sem dados vitais e ordena por maior densidade proteica e limpeza da lista
         df_filtrado = df_filtrado[(df_filtrado['Kcal_100g'] > 0)].sort_values(by='Prot_100g', ascending=False)
         
         st.write(f"Alimentos liberados para **Tipo {tipo_sanguineo}** na dieta **{dieta}**:")
         
-        # Apresentação Limpa
-        df_view = df_filtrado.drop(columns=['Evitar_Tipo_Sangue']).head(150) # Exibe top 150 para evitar travamentos
+        df_view = df_filtrado.drop(columns=['Evitar_Tipo_Sangue']).head(150) 
         st.dataframe(
             df_view.style.format({
                 "Kcal_100g": "{:.1f}",
