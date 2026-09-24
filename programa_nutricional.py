@@ -2,13 +2,13 @@ import streamlit as st
 import pandas as pd
 import requests
 import json
+import os
 
 # ==========================================
 # 1. CONFIGURAÇÃO INICIAL DA PÁGINA
 # ==========================================
 st.set_page_config(page_title="Calculadora Metabólica Avançada", layout="wide")
 
-# Inicializa o banco de dados do cardápio do usuário na memória
 if "cardapio" not in st.session_state:
     st.session_state["cardapio"] = pd.DataFrame(columns=[
         "Alimento", "Quantidade (g)", "Kcal", "Carboidratos (g)", "Proteínas (g)", "Gorduras (g)"
@@ -18,7 +18,6 @@ if "cardapio" not in st.session_state:
 # 2. SISTEMA DE AUTENTICAÇÃO
 # ==========================================
 def verificar_senha():
-    """Valida a senha usando st.secrets e mantem o estado da sessão ativo"""
     if "autenticado" not in st.session_state:
         st.session_state["autenticado"] = False
 
@@ -45,7 +44,7 @@ if not verificar_senha():
 def inferir_restricoes_sangue(nome):
     nome_lower = str(nome).lower()
     evitar = set()
-    if any(x in nome_lower for x in ["beef", "carne", "vaca", "porco", "pork", "bacon", "tomate", "tomato", "batata", "potato"]):
+    if any(x in nome_lower for x in ["beef", "carne", "vaca", "porco", "pork", "bacon", "tomate", "tomato", "batata", "potato", "acém", "picanha", "patinho"]):
         evitar.add("A")
     if any(x in nome_lower for x in ["frango", "chicken", "porco", "pork", "bacon", "milho", "corn", "tomate", "tomato", "amendoim", "peanut"]):
         evitar.add("B")
@@ -56,7 +55,6 @@ def inferir_restricoes_sangue(nome):
     return list(evitar)
 
 def converter_para_float(valor):
-    """Converte valores como 'Tr' (Traços), 'NA' ou strings vazias do JSON para 0.0"""
     if isinstance(valor, (int, float)):
         return float(valor)
     if isinstance(valor, str):
@@ -71,13 +69,11 @@ def converter_para_float(valor):
 
 @st.cache_data(ttl=86400)
 def carregar_taco():
-    """Busca e padroniza a Tabela TACO Brasileira a partir do arquivo local"""
     try:
         with open("TACO.json", "r", encoding="utf-8") as f:
             dados = json.load(f)
             
         alimentos_taco = []
-        
         for item in dados:
             descricao = item.get("description", "")
             if not descricao:
@@ -103,60 +99,104 @@ def carregar_taco():
         st.error(f"Falha ao carregar a tabela TACO local: {e}")
         return pd.DataFrame()
 
-@st.cache_data(ttl=86400)
-def buscar_alimento_usda(query, max_resultados=5):
-    chave_api = st.secrets.get("usda_key", None)
-    
-    if not chave_api:
-        st.warning("⚠️ Chave USDA não configurada no secrets.toml. A busca americana não funcionará.")
-        return pd.DataFrame()
-
-    url = "https://api.nal.usda.gov/fdc/v1/foods/search"
-    parametros = {
-        "api_key": chave_api,
-        "query": query,
-        "dataType": ["Foundation", "SR Legacy"],
-        "pageSize": max_resultados
-    }
-    
-    resposta = requests.get(url, params=parametros)
-    if resposta.status_code != 200:
-        st.error("Erro ao conectar com a base de dados do USDA.")
-        return pd.DataFrame()
+def salvar_novo_alimento(nome, categoria, kcal, prot, carb, gord):
+    """Abre o TACO.json, anexa o novo alimento e salva permanentemente."""
+    try:
+        if not os.path.exists("TACO.json"):
+            dados = []
+        else:
+            with open("TACO.json", "r", encoding="utf-8") as f:
+                dados = json.load(f)
         
-    dados = resposta.json()
-    alimentos_processados = []
-    
-    NUTRIENTES_ALVO = {
-        1008: "Kcal_100g",
-        1003: "Prot_100g",
-        1005: "Carb_100g",
-        1004: "Gord_100g"
-    }
-    
-    for item in dados.get('foods', []):
-        alimento_dict = {
-            "Alimento": item.get('description'),
-            "Categoria": item.get('foodCategory', 'USDA (EUA)'),
-            "Kcal_100g": 0.0,
-            "Prot_100g": 0.0,
-            "Carb_100g": 0.0,
-            "Gord_100g": 0.0,
-            "Evitar_Tipo_Sangue": inferir_restricoes_sangue(item.get('description'))
+        # Cria a estrutura exata exigida pelo seu TACO.json atual
+        novo_id = max([item.get("id", 0) for item in dados]) + 1 if dados else 1
+        
+        novo_item = {
+            "id": novo_id,
+            "description": nome,
+            "category": categoria,
+            "humidity_percents": "NA",
+            "energy_kcal": kcal,
+            "energy_kj": kcal * 4.184, # Conversão básica
+            "protein_g": prot,
+            "lipid_g": gord,
+            "cholesterol_mg": "NA",
+            "carbohydrate_g": carb,
+            "fiber_g": "NA",
+            "ashes_g": "NA",
+            "calcium_mg": "NA",
+            "magnesium_mg": "NA",
+            "manganese_mg": "NA",
+            "phosphorus_mg": "NA",
+            "iron_mg": "NA",
+            "sodium_mg": "NA",
+            "potassium_mg": "NA",
+            "copper_mg": "NA",
+            "zinc_mg": "NA",
+            "retinol_mcg": "NA",
+            "re_mcg": "NA",
+            "rae_mcg": "NA",
+            "thiamine_mg": "NA",
+            "riboflavin_mg": "NA",
+            "pyridoxine_mg": "NA",
+            "niacin_mg": "NA",
+            "vitaminC_mg": "NA",
+            "saturated_g": "NA",
+            "monounsaturated_g": "NA",
+            "polyunsaturated_g": "NA",
+            "12:0_g": "NA",
+            "14:0_g": "NA",
+            "16:0_g": "NA",
+            "18:0_g": "NA",
+            "20:0_g": "NA",
+            "22:0_g": "NA",
+            "24:0_g": "NA",
+            "14:1_g": "NA",
+            "16:1_g": "NA",
+            "18:1_g": "NA",
+            "20:1_g": "NA",
+            "18:2 n-6_g": "NA",
+            "18:3 n-3_g": "NA",
+            "20:4_g": "NA",
+            "20:5_g": "NA",
+            "22:5_g": "NA",
+            "22:6_g": "NA",
+            "18:1t_g": "NA",
+            "18:2t_g": "NA",
+            "tryptophan_g": "NA",
+            "threonine_g": "NA",
+            "isoleucine_g": "NA",
+            "leucine_g": "NA",
+            "lysine_g": "NA",
+            "methionine_g": "NA",
+            "cystine_g": "NA",
+            "phenylalanine_g": "NA",
+            "tyrosine_g": "NA",
+            "valine_g": "NA",
+            "arginine_g": "NA",
+            "histidine_g": "NA",
+            "alanine_g": "NA",
+            "aspartic_g": "NA",
+            "glutamic_g": "NA",
+            "glycine_g": "NA",
+            "proline_g": "NA",
+            "serine_g": "NA"
         }
         
-        for nutriente in item.get('foodNutrients', []):
-            id_nutriente = nutriente.get('nutrientId')
-            if id_nutriente in NUTRIENTES_ALVO:
-                nome_coluna = NUTRIENTES_ALVO[id_nutriente]
-                alimento_dict[nome_coluna] = round(nutriente.get('value', 0.0), 1)
-                
-        alimentos_processados.append(alimento_dict)
+        dados.append(novo_item)
         
-    return pd.DataFrame(alimentos_processados)
+        with open("TACO.json", "w", encoding="utf-8") as f:
+            json.dump(dados, f, ensure_ascii=False, indent=2)
+            
+        # Força o Streamlit a ler o arquivo novamente apagando o cache antigo
+        st.cache_data.clear()
+        return True
+    except Exception as e:
+        st.error(f"Erro ao salvar arquivo: {e}")
+        return False
 
 # ==========================================
-# 4. MOTOR METABÓLICO E DE MACROS
+# 4. MOTOR METABÓLICO
 # ==========================================
 def calcular_tmb(peso, altura, idade, sexo):
     if sexo == "Masculino":
@@ -197,7 +237,7 @@ def distribuir_macros(calorias, dieta, peso, objetivo):
     return round(carb_g), round(prot_g), round(gord_g)
 
 # ==========================================
-# 5. INTERFACE DO USUÁRIO (STREAMLIT)
+# 5. INTERFACE DO USUÁRIO
 # ==========================================
 st.title("Sistema de Nutrição de Alta Precisão (USDA + TACO)")
 
@@ -239,17 +279,24 @@ with col1:
     ])
     
     st.markdown("---")
-    st.header("Adicionar Alimentos (USDA)")
-    termo_busca = st.text_input("Busca Internacional (Em inglês, ex: 'chicken breast', 'salmon'):")
     
-    if termo_busca:
-        with st.spinner("Buscando no banco de dados do governo americano..."):
-            df_usda = buscar_alimento_usda(termo_busca)
-            if not df_usda.empty:
-                st.success(f"Encontrados {len(df_usda)} resultados!")
-                df_master = pd.concat([df_master, df_usda], ignore_index=True)
-            else:
-                st.info("Nenhum dado retornado da USDA.")
+    with st.expander("🛠️ Cadastrar Novo Alimento Local"):
+        with st.form("form_cadastrar_alimento"):
+            st.info("Os valores devem ser baseados em 100g do produto.")
+            novo_nome = st.text_input("Nome do Alimento (Ex: Acém, cozido):")
+            nova_cat = st.selectbox("Categoria:", ["Carnes e derivados", "Pescados e frutos do mar", "Leite e derivados", "Verduras, hortaliças e derivados", "Frutas e derivados", "Outros"])
+            n_kcal = st.number_input("Calorias (kcal):", min_value=0.0, value=212.0)
+            n_prot = st.number_input("Proteínas (g):", min_value=0.0, value=26.7)
+            n_carb = st.number_input("Carboidratos (g):", min_value=0.0, value=0.0)
+            n_gord = st.number_input("Gorduras (g):", min_value=0.0, value=10.9)
+            
+            if st.form_submit_button("Salvar no Banco de Dados"):
+                if novo_nome:
+                    if salvar_novo_alimento(novo_nome, nova_cat, n_kcal, n_prot, n_carb, n_gord):
+                        st.success(f"'{novo_nome}' salvo com sucesso! O sistema foi atualizado.")
+                        st.rerun()
+                else:
+                    st.error("O nome do alimento é obrigatório.")
 
 with col2:
     st.header("Diagnóstico Metabólico e Macros")
@@ -273,7 +320,6 @@ with col2:
     if not df_master.empty:
         df_filtrado = df_master.copy()
         
-        # Filtros e Limpezas
         df_filtrado = df_filtrado[~df_filtrado['Evitar_Tipo_Sangue'].apply(lambda x: tipo_sanguineo in x if isinstance(x, list) else False)]
         
         if dieta == "Carnívora":
@@ -297,22 +343,17 @@ with col2:
             height=300
         )
         
-        # ==========================================
-        # 6. MONTADOR DE CARDÁPIO E CONFRONTO
-        # ==========================================
         st.markdown("---")
-        st.header("🍽️ Montador de Cardápio")
+        st.header("🍽️ Montador de Cardápio Diário")
         
         with st.form("form_add_alimento"):
             col_f1, col_f2, col_f3 = st.columns([3, 1, 1])
-            
-            # Limita as opções ao que passou pelo filtro
             opcoes_alimentos = df_filtrado['Alimento'].tolist()
             
             with col_f1:
                 alimento_selecionado = st.selectbox("Selecione o Alimento:", opcoes_alimentos)
             with col_f2:
-                quantidade = st.number_input("Peso (gramas):", min_value=1.0, max_value=2000.0, value=100.0, step=10.0)
+                quantidade = st.number_input("Peso (g):", min_value=1.0, max_value=2000.0, value=100.0, step=10.0)
             with col_f3:
                 st.markdown("<br>", unsafe_allow_html=True)
                 adicionar = st.form_submit_button("➕ Adicionar")
@@ -331,7 +372,7 @@ with col2:
                 }])
                 
                 st.session_state["cardapio"] = pd.concat([st.session_state["cardapio"], novo_item], ignore_index=True)
-                st.rerun() # Atualiza os visuais imediatamente
+                st.rerun()
                 
         if not st.session_state["cardapio"].empty:
             st.subheader("📋 Resumo do seu Cardápio")
@@ -352,13 +393,12 @@ with col2:
                 ])
                 st.rerun()
                 
-            # Cálculos de Confronto
             total_kcal = st.session_state["cardapio"]["Kcal"].sum()
             total_carb = st.session_state["cardapio"]["Carboidratos (g)"].sum()
             total_prot = st.session_state["cardapio"]["Proteínas (g)"].sum()
             total_gord = st.session_state["cardapio"]["Gorduras (g)"].sum()
             
-            st.markdown("### ⚖️ Confronto com a Meta Diária")
+            st.markdown("### ⚖️ Saldo Restante")
             
             def saldo_texto(total, alvo, unidade):
                 diff = alvo - total
@@ -374,7 +414,6 @@ with col2:
             col_r3.metric("Total Proteínas", f"{total_prot:.0f} g", saldo_texto(total_prot, prot_g, "g"), delta_color="off")
             col_r4.metric("Total Gorduras", f"{total_gord:.0f} g", saldo_texto(total_gord, gord_g, "g"), delta_color="off")
             
-            # Gráficos de barra nativos do Streamlit
             st.caption("Progresso de Preenchimento da Meta Diária")
             st.progress(min(total_kcal / calorias_alvo, 1.0) if calorias_alvo > 0 else 0, text="Energia (Kcal)")
             st.progress(min(total_prot / prot_g, 1.0) if prot_g > 0 else 0, text="Proteínas")
