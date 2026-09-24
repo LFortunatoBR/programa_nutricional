@@ -2,8 +2,37 @@ import streamlit as st
 import pandas as pd
 import requests
 
-# Configuração da Página
+# A configuração da página deve ser obrigatoriamente o primeiro comando Streamlit
 st.set_page_config(page_title="Calculadora Metabólica Avançada", layout="wide")
+
+# ==========================================
+# SISTEMA DE AUTENTICAÇÃO
+# ==========================================
+def verificar_senha():
+    """Valida a senha usando st.secrets e mantem o estado da sessão ativo"""
+    # Inicializa o estado de autenticação se ainda não existir
+    if "autenticado" not in st.session_state:
+        st.session_state["autenticado"] = False
+
+    # Se não estiver autenticado, mostra a tela de login
+    if not st.session_state["autenticado"]:
+        st.markdown("### Acesso Restrito: Sistema Nutricional")
+        senha_digitada = st.text_input("Digite a senha de acesso:", type="password")
+        
+        if st.button("Entrar"):
+            # Compara com a senha salva no secrets.toml
+            if senha_digitada == st.secrets.get("app_password"):
+                st.session_state["autenticado"] = True
+                st.rerun() # Recarrega a página para liberar a interface principal
+            else:
+                st.error("Senha incorreta. Tente novamente.")
+        return False
+    
+    return True
+
+# Trava a execução do restante do código se a função retornar False
+if not verificar_senha():
+    st.stop()
 
 # ==========================================
 # 1. FUNÇÕES DE DADOS E INTEGRAÇÕES DE API
