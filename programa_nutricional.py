@@ -67,45 +67,44 @@ def inferir_restricoes_sangue(nome):
 
 @st.cache_data(ttl=86400)
 def carregar_taco():
-    """Busca e padroniza a Tabela TACO Brasileira a partir do repositório oficial no GitHub"""
-    url_taco = "https://raw.githubusercontent.com/taco-api/taco-api/master/data/taco.json"
+    """Busca e padroniza a Tabela TACO Brasileira a partir do arquivo local"""
     try:
-        resposta = requests.get(url_taco)
-        if resposta.status_code == 200:
-            dados = resposta.json()
-            alimentos_taco = []
+        with open("taco.json", "r", encoding="utf-8") as f:
+            dados = json.load(f)
             
-            for item in dados:
-                descricao = item.get("description", "")
-                if not descricao:
-                    continue
-                
-                # Extração segura de dicionários aninhados da TACO
-                energia = item.get("energy", {})
-                kcal = float(energia.get("kcal", 0) if energia.get("kcal") else 0)
-                
-                prot_dict = item.get("protein", {})
-                prot = float(prot_dict.get("qty", 0) if isinstance(prot_dict, dict) and prot_dict.get("qty") else 0)
-                
-                carb_dict = item.get("carbohydrate", {})
-                carb = float(carb_dict.get("qty", 0) if isinstance(carb_dict, dict) and carb_dict.get("qty") else 0)
-                
-                gord_dict = item.get("lipid", {})
-                gord = float(gord_dict.get("qty", 0) if isinstance(gord_dict, dict) and gord_dict.get("qty") else 0)
-                
-                alimentos_taco.append({
-                    "Alimento": descricao,
-                    "Categoria": "TACO (Brasil)",
-                    "Kcal_100g": kcal,
-                    "Prot_100g": prot,
-                    "Carb_100g": carb,
-                    "Gord_100g": gord,
-                    "Evitar_Tipo_Sangue": inferir_restricoes_sangue(descricao)
-                })
-            return pd.DataFrame(alimentos_taco)
+        alimentos_taco = []
+        
+        for item in dados:
+            descricao = item.get("description", "")
+            if not descricao:
+                continue
+            
+            # Extração segura de dicionários aninhados da TACO
+            energia = item.get("energy", {})
+            kcal = float(energia.get("kcal", 0) if energia.get("kcal") else 0)
+            
+            prot_dict = item.get("protein", {})
+            prot = float(prot_dict.get("qty", 0) if isinstance(prot_dict, dict) and prot_dict.get("qty") else 0)
+            
+            carb_dict = item.get("carbohydrate", {})
+            carb = float(carb_dict.get("qty", 0) if isinstance(carb_dict, dict) and carb_dict.get("qty") else 0)
+            
+            gord_dict = item.get("lipid", {})
+            gord = float(gord_dict.get("qty", 0) if isinstance(gord_dict, dict) and gord_dict.get("qty") else 0)
+            
+            alimentos_taco.append({
+                "Alimento": descricao,
+                "Categoria": "TACO (Brasil)",
+                "Kcal_100g": kcal,
+                "Prot_100g": prot,
+                "Carb_100g": carb,
+                "Gord_100g": gord,
+                "Evitar_Tipo_Sangue": inferir_restricoes_sangue(descricao)
+            })
+        return pd.DataFrame(alimentos_taco)
     except Exception as e:
-        st.error(f"Falha ao carregar a tabela TACO: {e}")
-    return pd.DataFrame()
+        st.error(f"Falha ao carregar a tabela TACO local: {e}")
+        return pd.DataFrame()
 
 @st.cache_data(ttl=86400)
 def buscar_alimento_usda(query, max_resultados=5):
